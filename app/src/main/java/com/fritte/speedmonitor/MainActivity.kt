@@ -8,12 +8,13 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
+import android.net.wifi.WifiManager
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.InputFilter
 import android.text.InputType
 import android.view.Gravity
@@ -61,6 +62,32 @@ class MainActivity : Activity() {
         interval = Prefs.refresh(this)
         buildUi()
         if (Prefs.notif(this)) startMonitorService()
+        if (savedInstanceState == null) handler.post { checkWifi() }
+    }
+
+    /** On launch: if Wi-Fi is off, offer to switch it on (Android needs the user to flip the switch). */
+    private fun checkWifi() {
+        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
+        if (wm.isWifiEnabled || isFinishing) return
+        AlertDialog.Builder(this)
+            .setTitle("Wi-Fi is turned off")
+            .setMessage("This app needs your home Wi-Fi to reach the router. Turn on Wi-Fi now?")
+            .setPositiveButton("Turn on Wi-Fi") { _, _ -> openWifiSwitch() }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
+
+    private fun openWifiSwitch() {
+        val intent = when {
+            Build.VERSION.SDK_INT >= 30 -> Intent(Settings.Panel.ACTION_WIFI)
+            Build.VERSION.SDK_INT >= 29 -> Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
+            else -> Intent(Settings.ACTION_WIFI_SETTINGS)
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+        }
     }
 
     override fun onStart() {
@@ -95,13 +122,13 @@ class MainActivity : Activity() {
         r1.addView(label("Router:", 14f, Theme.MUTED))
         etHost = field(Prefs.host(this))
         etHost.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-        r1.addView(etHost, weighted(1f, dp(10)))
+        r1.addView(etHost, weighted(1f, dp(14)))
         col.addView(r1)
 
         val r2 = row()
         r2.addView(flatButton("Retry") { onRetry() }, weighted(1f))
-        r2.addView(flatButton("Reset stats") { Monitor.reset() }, weighted(1f, dp(8)))
-        col.addView(r2)
+        r2.addView(flatButton("Reset stats") { Monitor.reset() }, weighted(1f, dp(12)))
+        col.addView(r2, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         // Status
         val r3 = row()
@@ -109,9 +136,12 @@ class MainActivity : Activity() {
         tvStatus = label("Connecting …", 14f, Theme.MUTED)
         r3.addView(tvDot)
         r3.addView(tvStatus, weighted(1f, dp(6)))
-        col.addView(r3)
+        tvStatus.maxLines = 1
+        tvStatus.ellipsize = android.text.TextUtils.TruncateAt.END
         tvConn = label("", 13f, Theme.MUTED)
-        col.addView(tvConn)
+        tvConn.gravity = Gravity.END
+        r3.addView(tvConn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(8) })
+        col.addView(r3)
 
         // Refresh speed
         val r4 = row()
@@ -119,8 +149,13 @@ class MainActivity : Activity() {
         etRefresh = field(fmtInterval(interval))
         etRefresh.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         etRefresh.filters = arrayOf(InputFilter.LengthFilter(3)) // max 3 characters
-        r4.addView(etRefresh, LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(10) })
-        r4.addView(flatButton("Apply") { applyInterval() }, weighted(0f, dp(8)))
+        etRefresh.gravity = Gravity.CENTER_VERTICAL
+        r4.addView(etRefresh, LinearLayout.LayoutParams(dp(80), dp(44)).apply { leftMargin = dp(10) })
+        val btnApply = flatButton("Apply") { applyInterval() }
+        btnApply.minWidth = 0
+        btnApply.minHeight = 0
+        btnApply.setPadding(0, 0, 0, 0)
+        r4.addView(btnApply, LinearLayout.LayoutParams(dp(80), dp(44)).apply { leftMargin = dp(8) }) // same size as the box
         col.addView(r4)
         col.addView(label("seconds (0.1–5)", 12f, Theme.MUTED))
 
@@ -140,7 +175,7 @@ class MainActivity : Activity() {
         col.addView(tvFooter, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         // Options
-        btnAwake = flatButton("Enable Keep-Awake") { toggleAwake() }
+        btnAwake = flatButton("Keep screen awake") { toggleAwake() }
         col.addView(btnAwake, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
 
         swNotif = Switch(this).apply {
@@ -238,7 +273,7 @@ class MainActivity : Activity() {
         awake = !awake
         if (awake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        btnAwake.text = if (awake) "Disable Keep-Awake" else "Enable Keep-Awake"
+        btnAwake.setTextColor(if (awake) Theme.DOWN else Theme.FG) // green = screen stays on
     }
 
     private fun onNotifToggle(on: Boolean) {
@@ -277,8 +312,11 @@ class MainActivity : Activity() {
         val host = etHost.text.toString().trim().ifEmpty { "fritz.box" }
         AlertDialog.Builder(this)
             .setTitle("Connection lost")
-            .setMessage("⚠ Connection to the router was lost\n\nThe app can no longer reach $host.\n" +
-                "Check that the router is on and reachable, then try again.")
+            .setMessage("⚠ Connection to the router was lost\n\n" +
+                "The app can no longer reach $host. Check that the router is on and reachable, " +
+                "then try again. Alternatively, edit the router address to 192.168.178.1 or use " +
+                "the Emergency IP 169.254.1.1.\n\n" +
+                "Also make sure that all VPN services are disabled.")
             .setPositiveButton("Try to reconnect") { _, _ -> Monitor.retry(true) }
             .setNegativeButton("Dismiss", null)
             .show()

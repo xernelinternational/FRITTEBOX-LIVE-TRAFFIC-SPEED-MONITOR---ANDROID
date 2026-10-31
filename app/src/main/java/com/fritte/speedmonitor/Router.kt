@@ -103,6 +103,8 @@ object Router {
     const val WAN_SVC = "urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1"
     const val NA = "Information not available - Admin Username and Password needed"
     const val PUBLIC_TITLE = "Current public IPv4 address"
+    const val MAC_TITLE = "FritteBox MAC addresses"
+    const val DNS_TITLE = "WAN DNS servers"
 
     private val IGD = listOf(
         "/igdupnp/control/WANIPConn1" to "urn:schemas-upnp-org:service:WANIPConnection:1",
@@ -451,11 +453,11 @@ object Router {
             Item("Configured SSID / network name", ssid),
             Item(PUBLIC_TITLE, publicIp),
             Item("Connected devices (2.4 GHz, 5 GHz, 6 GHz, LAN)", devices),
-            Item("FritteBox MAC addresses", linesOrNull(macs)),
+            Item(MAC_TITLE, linesOrNull(macs)),
             Item("Wireless configuration and radio status", linesOrNull(cfg)),
             Item("Wi-Fi security configuration", linesOrNull(sec)),
             Item("Supported radio configuration options", linesOrNull(opts)),
-            Item("WAN DNS servers", linesOrNull(dns)),
+            Item(DNS_TITLE, linesOrNull(dns)),
             Item("Wake-on-LAN functions", wol),
             Item("FRITZ!OS version", osver)
         )

@@ -10,6 +10,7 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.view.Gravity
 import android.view.ViewGroup
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -23,6 +24,8 @@ class ExtraInfoActivity : Activity() {
     private lateinit var etPass: EditText
     private lateinit var tvText: TextView
     private lateinit var tvStatus: TextView
+    private lateinit var cbSave: CheckBox
+    private lateinit var cbShow: CheckBox
     private lateinit var btnLoad: android.widget.Button
     private lateinit var btnPublic: android.widget.Button
     private var items: List<Item> = emptyList()
@@ -52,6 +55,32 @@ class ExtraInfoActivity : Activity() {
         col.addView(etUser, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
         col.addView(etPass, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
 
+        // "Save Password" and "Show Password" (both choices are remembered)
+        cbSave = CheckBox(this).apply {
+            text = "Save Password"
+            setTextColor(Theme.FG)
+            isChecked = Prefs.savePw(this@ExtraInfoActivity)
+        }
+        cbShow = CheckBox(this).apply {
+            text = "Show Password"
+            setTextColor(Theme.FG)
+            isChecked = Prefs.showPw(this@ExtraInfoActivity)
+        }
+        if (cbSave.isChecked) etPass.setText(Prefs.password(this))
+        applyShowPassword(cbShow.isChecked)
+        cbSave.setOnCheckedChangeListener { _, on ->
+            Prefs.setSavePw(this, on)
+            Prefs.setPassword(this, if (on) etPass.text.toString() else null)
+        }
+        cbShow.setOnCheckedChangeListener { _, on ->
+            Prefs.setShowPw(this, on)
+            applyShowPassword(on)
+        }
+        val checks = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        checks.addView(cbSave)
+        checks.addView(cbShow, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(16) })
+        col.addView(checks, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         btnLoad = flatButton("Load details") { start() }
         btnPublic = flatButton("Show Public Info") { togglePublic() }
@@ -61,7 +90,7 @@ class ExtraInfoActivity : Activity() {
 
         col.addView(label(
             "Most details need your Admin login and the setting \"Zugriff für Anwendungen zulassen\". " +
-                "The password is never saved.", 11f, Theme.MUTED
+                "Your password is only saved if you tick \"Save Password\" (encrypted on this phone).", 11f, Theme.MUTED
         ).apply { setPadding(0, dp(4), 0, dp(6)) })
 
         tvText = label("", 14f, Theme.FG).apply {
@@ -100,7 +129,8 @@ class ExtraInfoActivity : Activity() {
         val host = Prefs.host(this).trim().ifEmpty { "fritz.box" }
         val user = etUser.text.toString().trim()
         val pass = etPass.text.toString()
-        if (pass.isNotEmpty()) Prefs.setUsername(this, user) // only the user name is remembered
+        if (pass.isNotEmpty()) Prefs.setUsername(this, user)
+        Prefs.setPassword(this, if (cbSave.isChecked) pass else null) // saved only if ticked
         exec.execute {
             val res = try { Router.gatherInfo(host, user, pass) } catch (e: Exception) { null to e.message }
             runOnUiThread { if (!isDestroyed) showResult(res) }
@@ -126,9 +156,30 @@ class ExtraInfoActivity : Activity() {
             "unreachable" -> "The router's detail interface could not be reached - check the router address and " +
                 "\"Zugriff für Anwendungen zulassen\"."
             "ok" -> if (missing > 0) "Done. Items marked unavailable are not offered by this router/firmware." else "Done."
-            else -> if (missing > 0) "Some details need your Admin login - Enter it above and click on Load details. " +
-                "Your password is never saved." else "Done."
+            else -> if (missing > 0) "Some details need your Admin login - Enter it above and click on Load details."
+            else "Done."
         }
+    }
+
+    private fun applyShowPassword(show: Boolean) {
+        val pos = etPass.selectionStart.coerceAtLeast(0)
+        etPass.inputType = InputType.TYPE_CLASS_TEXT or
+            if (show) InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD else InputType.TYPE_TEXT_VARIATION_PASSWORD
+        etPass.setSelection(minOf(pos, etPass.text.length))
+    }
+
+    /** Hides public IP, MAC addresses and DNS servers until the user taps "Show Public Info". */
+    private fun mask(title: String, v: String): String = when (title) {
+        Router.PUBLIC_TITLE -> v.replace(Regex("^\\d{1,3}(\\.\\d{1,3}){3}"), "***.***.***.***")
+        Router.MAC_TITLE -> v.replace(Regex("([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}"), "**:**:**:**:**:**")
+        Router.DNS_TITLE -> v.split("\n").joinToString("\n") { line ->
+            val i = line.indexOf(": ")
+            if (i < 0) line else line.substring(0, i + 2) +
+                line.substring(i + 2).split(Regex(",\\s*")).joinToString(", ") {
+                    if (it.contains(":")) "****:****:****:****" else "***.***.***.***"
+                }
+        }
+        else -> v
     }
 
     private fun togglePublic() {
@@ -147,9 +198,7 @@ class ExtraInfoActivity : Activity() {
         }
         for (item in items) {
             var value = item.value
-            if (item.title == Router.PUBLIC_TITLE && value != null && !showPublic) {
-                value = value.replace(Regex("^\\d{1,3}(\\.\\d{1,3}){3}"), "***.***.***.***")
-            }
+            if (value != null && !showPublic) value = mask(item.title, value)
             when {
                 value == null -> {
                     add(item.title + ": ", Theme.DOWN, Typeface.BOLD)

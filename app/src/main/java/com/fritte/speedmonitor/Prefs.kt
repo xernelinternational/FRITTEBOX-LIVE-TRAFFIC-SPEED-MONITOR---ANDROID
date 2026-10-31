@@ -21,6 +21,21 @@ object Prefs {
     fun username(c: Context): String = sp(c).getString("username", "") ?: ""
     fun setUsername(c: Context, v: String) = sp(c).edit().putString("username", v).apply()
 
+    fun savePw(c: Context): Boolean = sp(c).getBoolean("save_pw", false)
+    fun setSavePw(c: Context, v: Boolean) = sp(c).edit().putBoolean("save_pw", v).apply()
+
+    fun showPw(c: Context): Boolean = sp(c).getBoolean("show_pw", false)
+    fun setShowPw(c: Context, v: Boolean) = sp(c).edit().putBoolean("show_pw", v).apply()
+
+    /** The password is stored encrypted (Android Keystore) and only if "Save Password" is ticked. */
+    fun password(c: Context): String = sp(c).getString("pw_enc", null)?.let { Vault.decrypt(it) } ?: ""
+    fun setPassword(c: Context, v: String?) {
+        val e = sp(c).edit()
+        val enc = if (v.isNullOrEmpty()) null else Vault.encrypt(v)
+        if (enc == null) e.remove("pw_enc") else e.putString("pw_enc", enc)
+        e.apply()
+    }
+
     fun notif(c: Context): Boolean = sp(c).getBoolean("notif", true)
     fun setNotif(c: Context, v: Boolean) = sp(c).edit().putBoolean("notif", v).apply()
 
